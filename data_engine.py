@@ -611,31 +611,66 @@ def generate_floorsheet(
 # ──────────────────────────────────────────────────────────────────────────────
 # MARKET SUMMARY
 # ──────────────────────────────────────────────────────────────────────────────
+def market_summary(market_df):
+    """High-level market statistics (robust version)."""
+    if market_df is None or market_df.empty:
+        return {
+            "advances": 0,
+            "declines": 0,
+            "unchanged": 0,
+            "total_stocks": 0,
+            "total_volume": 0,
+            "total_turnover": 0.0,
+            "avg_pct_change": 0.0,
+            "top_gainer": None,
+            "top_loser": None,
+            "top_active": None,
+            "breadth": 0.0,
+        }
 
-def market_summary(market_df: pd.DataFrame) -> dict:
-    """High-level market statistics."""
     df = market_df.copy()
+
+    # Clean data
+    df["pct_change"] = pd.to_numeric(df["pct_change"], errors="coerce").fillna(0)
+    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+    df["turnover"] = pd.to_numeric(df["turnover"], errors="coerce").fillna(0)
+
+    # Market breadth
     advances  = (df["pct_change"] > 0).sum()
     declines  = (df["pct_change"] < 0).sum()
     unchanged = (df["pct_change"] == 0).sum()
+
     total_vol = df["volume"].sum()
     total_to  = df["turnover"].sum()
     avg_move  = df["pct_change"].mean()
 
-    top_gainer = df.nlargest(1, "pct_change").iloc[0] if len(df) > 0 else None
-    top_loser  = df.nsmallest(1, "pct_change").iloc[0] if len(df) > 0 else None
-    top_active = df.nlargest(1, "volume").iloc[0]      if len(df) > 0 else None
+    # Top movers (return clean dict instead of Series)
+    def extract(row):
+        if row is None:
+            return None
+        return {
+            "symbol": row.get("symbol"),
+            "pct_change": round(float(row.get("pct_change", 0)), 2),
+            "volume": int(row.get("volume", 0)),
+        }
+
+    top_gainer = extract(df.loc[df["pct_change"].idxmax()]) if not df.empty else None
+    top_loser  = extract(df.loc[df["pct_change"].idxmin()]) if not df.empty else None
+    top_active = extract(df.loc[df["volume"].idxmax()])     if not df.empty else None
+
+    # Better breadth logic
+    breadth = round(advances / declines, 2) if declines > 0 else float(advances)
 
     return {
-        "advances":    int(advances),
-        "declines":    int(declines),
-        "unchanged":   int(unchanged),
-        "total_stocks":len(df),
-        "total_volume":int(total_vol),
+        "advances": int(advances),
+        "declines": int(declines),
+        "unchanged": int(unchanged),
+        "total_stocks": len(df),
+        "total_volume": int(total_vol),
         "total_turnover": float(total_to),
         "avg_pct_change": round(float(avg_move), 2),
-        "top_gainer":  top_gainer,
-        "top_loser":   top_loser,
-        "top_active":  top_active,
-        "breadth":     round(advances / max(declines, 1), 2),
+        "top_gainer": top_gainer,
+        "top_loser": top_loser,
+        "top_active": top_active,
+        "breadth": breadth,
     }
